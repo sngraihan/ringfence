@@ -82,6 +82,20 @@ Ya, ada yang berdekatan — kami cek dulu sebelum menulis ini:
 Ringfence lebih kecil dan lebih sempit: tiga penjaga + aturan brief, tanpa framework,
 tanpa layanan. Kalau kebutuhanmu besar, pakai yang di atas.
 
+## Apa yang ditiru dari repo lain (v0.2)
+
+Kami mengamati repo yang lebih dulu menyelesaikan masalah serupa, lalu meniru polanya
+(daftar lengkap + lisensi: [`docs/credits.md`](docs/credits.md)):
+
+| Mekanisme | Dari mana | Ada di sini |
+|---|---|---|
+| Jurnal append-only: selesai = peristiwa terminal, bukan bendera | babysitter (MIT) | `journal.Journal` |
+| Penanda idempotensi ber-hash (tanpa basis data) | babysitter | `journal.done_token` / `already_done` |
+| Aturan deny > warn > allow + jejak keputusan | babysitter, omnigent | `policy.evaluate` |
+| Putaran berulang: hash `tool + input`, 10x total / 6x dalam 10 menit | leash (MIT) | `loopwatch.LoopWatch` |
+| Pagar belanja harian & per-jam (fail-open) | leash, omnigent | `loopwatch.CostGuard` |
+| Brief ditolak bila tanpa identitas pemilik / terlalu pendek | harmonist (MIT) | `brief.check_brief` |
+
 ## Dasar dari sumber luar
 
 Ringkasan sumber (Anthropic, Cognition, Manus, OpenAI, arXiv) dan apa yang diambil
