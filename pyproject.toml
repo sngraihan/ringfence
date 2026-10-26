@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ringfence"
+version = "0.2.0"
+description = "Guard layer for long-running AI agent workers: directory leases, completion markers, loop/off-scope detection, step and cost budgets."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Raihan Andi Saungnaga" }]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Homepage = "https://github.com/sngraihan/ringfence"
+
+[tool.setuptools]
+packages = ["ringfence"]
