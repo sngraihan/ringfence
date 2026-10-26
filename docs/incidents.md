@@ -1,57 +1,57 @@
-# Catatan insiden (bukti asal-usul)
+# Incident log (provenance evidence)
 
-Tanggal 26 Oktober 2026, satu kantor dengan papan tugas kanban, beberapa pekerja AI
-per profil. Semua angka di bawah dari log dan basis data papan, bukan perkiraan.
+On 26 October 2026, one office with a kanban task board, several AI workers
+per profile. All numbers below come from the board's logs and database, not estimates.
 
-## 1. Perbaikan 1 baris, 250 langkah
+## 1. A 1-line fix, 250 steps
 
-Perbaikan jalur uang langganan bulanan = satu baris kode (`summary.ModelQuota = tieredQuota`)
-di `service/text_quota.go`. Yang terjadi:
+The fix for the monthly subscription money path = one line of code (`summary.ModelQuota = tieredQuota`)
+in `service/text_quota.go`. What happened:
 
-- enam kali uji matriks penuh 3 basis data dalam sehari (11:12, 11:14, 11:19, 12:37, 12:37, 14:02),
-  karena temuan pemeriksa keluar satu per satu di akhir tiap putaran.
-- satu run pekerja lain: `Duration 25m43s`, `Messages 551 (548 tool call)`, berakhir
+- six full matrix tests across 3 databases in a single day (11:12, 11:14, 11:19, 12:37, 12:37, 14:02),
+  because the reviewer's findings came out one at a time at the end of each round.
+- one run by another worker: `Duration 25m43s`, `Messages 551 (548 tool call)`, ending with
   `Iteration budget reached (250/250) — response may be incomplete`.
 
-Pelajaran: temuan harus dibatch dalam satu putaran, dan batas langkah harus jauh di bawah
-titik di mana hasil justru terpotong.
+Lesson: findings must be batched into a single round, and the step limit must sit well below
+the point where the result actually gets truncated.
 
-## 2. Pekerjaan selesai dijalankan ulang
+## 2. Completed work run again
 
-Kartu `t_c47ba9ce` sudah selesai: log runner berakhir `rc=0`, commit ada, laporan ada.
-Pengirim kerja tetap menjalankannya lagi 1 menit kemudian karena kartu masih berstatus
-`running` dan penanda "sudah selesai" tidak dikenali. Run kedua sudah mulai membaca ulang
-sumber dan menjalankan perintah lagi, sementara pemeriksa sedang menilai commit yang sama.
+Card `t_c47ba9ce` was already complete: the runner log ended with `rc=0`, the commit exists, the report exists.
+The work dispatcher still ran it again 1 minute later because the card was still in `running`
+status and the "already complete" marker was not recognized. The second run had already started re-reading
+sources and re-running commands, while the reviewer was assessing the same commit.
 
-Pelajaran: "log berakhir rc=0" harus jadi penanda keras yang mencegah penugasan ulang,
-bukan disimpulkan dari status papan.
+Lesson: "log ends with rc=0" must be a hard marker that prevents reassignment,
+not something inferred from the board status.
 
-## 3. Dua pekerja, satu direktori
+## 3. Two workers, one directory
 
-Di tengah insiden (2), pemeriksa independen sedang membaca commit `b695c80` di direktori
-yang sama yang dipakai pekerja kedua. Hasil apa pun dari pemeriksa itu bisa menunjuk
-kode yang sudah berubah.
+In the middle of incident (2), an independent reviewer was reading commit `b695c80` in the same directory
+used by the second worker. Any result from that reviewer could point to
+code that had already changed.
 
-Pelajaran: satu direktori = satu pekerja, ditegakkan dengan lease, bukan dengan ingatan.
+Lesson: one directory = one worker, enforced with a lease, not with memory.
 
-## 4. Menunggu dengan jeda berulang
+## 4. Waiting with repeated delays
 
-Satu pemeriksaan tampilan berjalan 22-28 menit dengan pola `sleep 45` / `sleep 50` /
-`sleep 55` berulang, lalu mulai memeriksa `docker images` dan `docker inspect postgres`
-di luar cakupan tugasnya, sementara laporan akhirnya masih 117 byte.
+One display check ran 22-28 minutes with a repeated `sleep 45` / `sleep 50` /
+`sleep 55` pattern, then started checking `docker images` and `docker inspect postgres`
+outside its task scope, while its final report was still 117 bytes.
 
-Pelajaran: menunggu dengan jeda mengubah satu pekerjaan jadi puluhan pemanggilan model.
-Yang bekerja: satu perintah blocking dengan batas waktu panjang, baca hasil sekali.
+Lesson: waiting with delays turns one job into dozens of model calls.
+What works: one blocking command with a long timeout, read the result once.
 
-## 5. Efek samping yang tidak diinginkan
+## 5. Unintended side effects
 
-Kami sempat membangun sensor yang membunuh pekerja begitu terlihat pola melenceng.
-Riset menunjukkan itu anti-pola: salah tuduh mahal, dan pekerja yang dihentikan di tengah
-sering kehilangan bukti. Sekarang sensor hanya menahan dan melaporkan; keputusan
-menghentikan ada di pengawas.
+We once built a sensor that killed workers as soon as a deviation pattern appeared.
+Research showed that is an anti-pattern: false accusations are expensive, and workers stopped mid-way
+often lose evidence. Now the sensor only holds and reports; the decision
+to stop rests with the supervisor.
 
-## Selisih setelah penjaga dipasang
+## The difference after the guard was installed
 
-Pemeriksaan uang yang sama, dijalankan ulang dengan aturan baru: **3 menit 17 detik, 28
-pemanggilan alat, putusan lengkap** — dibanding 28 menit tanpa putusan pada percobaan
-sebelumnya.
+The same money check, re-run with the new rules: **3 minutes 17 seconds, 28
+tool calls, a complete verdict** — compared to 28 minutes with no verdict on the previous
+attempt.

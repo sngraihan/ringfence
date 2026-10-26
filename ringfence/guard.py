@@ -1,20 +1,20 @@
 """Ringfence — guard layer for long-running AI agent workers.
 
-Lahir dari insiden nyata (26/10): satu pekerja AI menghabiskan 548 pemanggilan alat
-untuk perbaikan 1 baris kode, satu kartu kerja dijalankan ulang setelah selesai, dan
-dua pekerja bekerja di direktori yang sama sehingga hasil yang sedang diperiksa
-berubah di bawah kaki pemeriksa.
+Born from a real incident (26/10): one AI worker spent 548 tool calls on a
+one-line code fix, one work card was re-run after it finished, and two workers
+worked in the same directory so the results under review changed beneath the
+reviewer's feet.
 
-Modul ini hanya bergantung pada pustaka standar Python. Tiga penjaga:
+This module depends only on the Python standard library. Three guards:
 
-1. WorkLock   — satu direktori kerja = satu pekerja (lease + pemilik + token pagar).
-2. Marker     — satu pekerjaan selesai TIDAK boleh dijalankan ulang (penanda hasil).
-3. DriftWatch — pola berputar di catatan kerja: menunggu berulang, atau keluar cakupan.
+1. WorkLock   — one work directory = one worker (lease + owner + fencing token).
+2. Marker     — a finished job must NOT be re-run (completion marker).
+3. DriftWatch — looping patterns in the work log: repeated waiting, or going off scope.
 
-Ditambah `should_stop()`: batas langkah/waktu supaya pekerja berhenti dan menyerahkan
-catatan progres, bukan berputar sampai kehabisan langkah.
+Plus `should_stop()`: a step/time budget so a worker stops and hands off a progress
+log, instead of spinning until it runs out of steps.
 
-Status: dipakai di kantor internal kami. Belum diuji luas di luar itu.
+Status: used in our internal office. Not yet widely tested outside it.
 """
 
 from __future__ import annotations
@@ -40,40 +40,40 @@ __all__ = [
 
 STATE_DIR = ".ringfence"
 
-# Pola menunggu berulang: `sleep 45`, `sleep 60`, ... di catatan kerja.
+# Repeated waiting pattern: `sleep 45`, `sleep 60`, ... in the work log.
 SLEEP_RE = re.compile(r"\bsleep\s+\d{2,}")
 
-# Pola keluar cakupan: pekerja menyentuh kredensial/infra saat itu bukan tugasnya.
+# Off-scope pattern: the worker touches credentials/infra when that isn't its task.
 OFF_SCOPE_RE = re.compile(
     r"rate-limit|rate_limit|\.env\b|/etc/[a-z-]+/|docker inspect|docker images"
     r"|admin/login|PASSWORD",
     re.I,
 )
 
-# Kata yang menandakan tugas MEMANG soal auth/kredensial — jangan ditandai drift.
+# Words that signal the task IS about auth/credentials — do not flag as drift.
 AUTH_TASK_RE = re.compile(r"auth|login|credential|secret|token\s*scope|kredensial", re.I)
 
 
 class LockHeld(RuntimeError):
-    """Direktori kerja sudah dipegang pekerja lain yang lease-nya masih hidup."""
+    """The work directory is already held by another worker whose lease is still alive."""
 
 
 class WorkLock:
-    """Lease direktori kerja: satu direktori hanya boleh satu pekerja aktif.
+    """Work-directory lease: a directory may have only one active worker.
 
-    Dipakai sebelum menugaskan pekerja:
+    Use before assigning a worker:
 
         with WorkLock("/srv/work/task-42", owner="bayu", ttl=1800):
             ...
 
-    atau secara manual di pengirim kerja:
+    or manually at the work dispatcher:
 
         lock = WorkLock(dir, owner="bayu", ttl=1800)
         if not lock.acquire():
-            skip("direktori masih dipakai")
+            skip("directory still in use")
 
-    Lease kedaluwarsa dianggap bebas, sehingga pekerja yang mati mendadak tidak
-    memblokir direktori selamanya. `heartbeat()` memperpanjang lease pekerja hidup.
+    An expired lease is treated as free, so a worker that dies suddenly does not
+    block the directory forever. `heartbeat()` extends a live worker's lease.
     """
 
     def __init__(self, workdir: str | os.PathLike, owner: str, ttl: int = 1800):
@@ -90,7 +90,7 @@ class WorkLock:
             return None
 
     def acquire(self) -> bool:
-        """True bila lease didapat. False bila masih dipegang pekerja lain yang hidup."""
+        """True if the lease was obtained. False if still held by another live worker."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         cur = self.read()
         now = time.time()
@@ -106,7 +106,7 @@ class WorkLock:
         return True
 
     def heartbeat(self) -> bool:
-        """Perpanjang lease. False bila lease sudah diambil pekerja lain (fencing)."""
+        """Extend the lease. False if the lease was already taken by another worker (fencing)."""
         cur = self.read()
         if cur and cur.get("token") != self.token:
             return False
@@ -134,7 +134,7 @@ class WorkLock:
 
     def __enter__(self) -> "WorkLock":
         if not self.acquire():
-            raise LockHeld(f"{self.workdir} masih dipegang pekerja lain")
+            raise LockHeld(f"{self.workdir} is still held by another worker")
         return self
 
     def __exit__(self, *exc) -> None:
@@ -142,10 +142,10 @@ class WorkLock:
 
 
 def is_worker_running(workdir: str | os.PathLike, marker: str = "rr-runner.sh") -> bool | None:
-    """True bila ada proses yang direktori kerjanya = workdir (Linux /proc).
+    """True if some process's working directory = workdir (Linux /proc).
 
-    None berarti tidak bisa diperiksa (bukan Linux, atau /proc tidak terbaca).
-    Pemeriksa harus memperlakukan None sebagai "tidak dianggap hidup", bukan "hidup".
+    None means it could not be checked (not Linux, or /proc is unreadable).
+    The caller must treat None as "not considered alive", not "alive".
     """
     target = str(Path(workdir).resolve())
     proc = Path("/proc")
@@ -168,7 +168,7 @@ def is_worker_running(workdir: str | os.PathLike, marker: str = "rr-runner.sh") 
 
 
 def mark_done(workdir: str | os.PathLike, rc: int = 0, note: str = "") -> Path:
-    """Tulis penanda hasil pekerjaan. rc=0 berarti kerja selesai."""
+    """Write the job completion marker. rc=0 means the work is done."""
     path = Path(workdir) / STATE_DIR / "completion.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"rc": int(rc), "note": note, "at": time.time()}, indent=2) + "\n")
@@ -192,22 +192,22 @@ def detect_drift(
     sleeps: int = 4,
     off_scope: int = 2,
 ) -> tuple[str, str] | None:
-    """Baca ekor catatan kerja; kembalikan pola buruk yang jelas, atau None.
+    """Read the tail of the work log; return a clear bad pattern, or None.
 
-    ('sleep_poll', ...)  — pekerja menunggu dengan jeda berulang, membakar token per putaran.
-    ('off_scope', ...)   — pekerja menyentuh kredensial/infra padahal tugasnya bukan itu.
+    ('sleep_poll', ...)  — the worker waits with repeated delays, burning tokens each round.
+    ('off_scope', ...)   — the worker touches credentials/infra although that isn't its task.
 
-    PENTING: temuan ini untuk DITAHAN dan diperiksa manusia/pengawas, bukan dibunuh
-    otomatis. Mematikan pekerja karena tuduhan melenceng sering salah.
+    IMPORTANT: these findings are for HOLDING and having a human/supervisor inspect, not for
+    auto-killing. Killing a worker over a suspected drift is often wrong.
     """
     body = "\n".join(tail.splitlines()[-60:])
     n_sleep = len(SLEEP_RE.findall(body))
     if n_sleep >= sleeps:
-        return "sleep_poll", f"menunggu berulang {n_sleep}x di 60 baris terakhir"
+        return "sleep_poll", f"repeated waiting {n_sleep}x in the last 60 lines"
     if not AUTH_TASK_RE.search(task_title or ""):
         n_off = len(OFF_SCOPE_RE.findall(body))
         if n_off >= off_scope:
-            return "off_scope", f"menyentuh kredensial/infra {n_off}x padahal tugas bukan auth"
+            return "off_scope", f"touched credentials/infra {n_off}x although the task is not auth"
     return None
 
 
@@ -218,18 +218,18 @@ def should_stop(
     max_seconds: int = 2400,
     handoff_at: float = 0.75,
 ) -> tuple[bool, str]:
-    """Keputusan berhenti + alasan.
+    """Stop decision + reason.
 
-    Benar = pekerjaan harus ditutup dengan catatan progres (handoff), bukan diteruskan.
-    `handoff_at` memberi ruang sebelum batas keras supaya pekerja masih sempat menulis
-    catatan dan mengirim laporan.
+    True = the work must be closed with a progress note (handoff), not continued.
+    `handoff_at` leaves room before the hard limit so the worker still has time to write
+    the note and send a report.
     """
     if turns >= max_turns:
-        return True, f"batas langkah keras {max_turns} tercapai"
+        return True, f"hard step limit {max_turns} reached"
     if seconds >= max_seconds:
-        return True, f"batas waktu keras {max_seconds}s tercapai"
+        return True, f"hard time limit {max_seconds}s reached"
     if turns >= max_turns * handoff_at:
-        return True, f"masuk zona handoff ({turns}/{max_turns} langkah): tutup dengan PROGRESS.md"
+        return True, f"entered handoff zone ({turns}/{max_turns} steps): close with PROGRESS.md"
     if seconds >= max_seconds * handoff_at:
-        return True, f"masuk zona handoff ({int(seconds)}/{max_seconds}s): tutup dengan PROGRESS.md"
+        return True, f"entered handoff zone ({int(seconds)}/{max_seconds}s): close with PROGRESS.md"
     return False, ""

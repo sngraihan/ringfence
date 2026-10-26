@@ -1,8 +1,8 @@
-"""Evaluator aturan murni dengan presedensi deny > warn > allow.
+"""Pure rule evaluator with precedence deny > warn > allow.
 
-Ditiru dari `a5c-ai/babysitter` `engine.ts` (MIT, `evaluate(context)` murni) dan
-pola ALLOW/DENY/ASK `omnigent-ai/omnigent` (Apache-2.0). Tanpa efek samping: aturan
-masuk, keputusan keluar, dan jejak keputusan ikut dicatat supaya bisa diaudit.
+Modeled on `a5c-ai/babysitter` `engine.ts` (MIT, pure `evaluate(context)`) and the
+ALLOW/DENY/ASK pattern of `omnigent-ai/omnigent` (Apache-2.0). No side effects: rules
+in, decision out, and the decision trail is recorded too so it can be audited.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ OPS = ("eq", "neq", "gt", "lt", "gte", "lte", "contains", "matches", "in")
 class Rule:
     def __init__(self, name: str, effect: str, field: str, op: str, value, reason: str = ""):
         if effect not in ("allow", "warn", "deny"):
-            raise ValueError(f"effect tidak dikenal: {effect}")
+            raise ValueError(f"unknown effect: {effect}")
         if op not in OPS:
-            raise ValueError(f"op tidak dikenal: {op}")
+            raise ValueError(f"unknown op: {op}")
         self.name, self.effect, self.field, self.op, self.value = name, effect, field, op, value
         self.reason = reason
 
@@ -65,11 +65,11 @@ class Decision:
 
 
 def evaluate(context: dict, rules: list[Rule]) -> Decision:
-    """Aturan yang cocok dikumpulkan; menang yang paling keras.
+    """Matching rules are collected; the strongest wins.
 
-    Presedensi: deny > warn > allow, dan bila tidak ada yang cocok -> diizinkan
-    (default-allow) seperti pada sumber pola. Fail-closed dipasang oleh pemanggil
-    untuk aksi berisiko (lihat `docs/patterns.md`).
+    Precedence: deny > warn > allow, and if nothing matches -> allowed
+    (default-allow) as in the source pattern. Fail-closed is installed by the caller
+    for risky actions (see `docs/patterns.md`).
     """
     trail = []
     hits: list[Rule] = []
@@ -81,5 +81,5 @@ def evaluate(context: dict, rules: list[Rule]) -> Decision:
     for effect, allowed in (("deny", False), ("warn", True), ("allow", True)):
         for rule in hits:
             if rule.effect == effect:
-                return Decision(allowed, effect, rule, rule.reason or f"aturan {rule.name} berlaku", trail)
-    return Decision(True, "default", None, "tidak ada aturan yang cocok (default-allow)", trail)
+                return Decision(allowed, effect, rule, rule.reason or f"rule {rule.name} applies", trail)
+    return Decision(True, "default", None, "no matching rule (default-allow)", trail)

@@ -1,30 +1,30 @@
-# Aturan wajib di setiap brief pekerja (template)
+# Mandatory rules in every worker brief (template)
 
-Tempelkan blok ini ke setiap tugas. Isi khusus tugas ditulis di atasnya; aturan ini
-tidak boleh dilupakan karena brief cepat tenggelam di sesi panjang.
+Paste this block into every task. Task-specific content is written above it; these rules
+must not be forgotten because a brief quickly sinks in a long session.
 
 ```
-ATURAN EFISIENSI WAJIB
-1. BATCH temuan: bereskan SEMUA temuan di brief/probe dalam SATU putaran + SATU commit.
-   Dilarang menambal satu per satu lalu membuka putaran verifikasi baru.
-2. Test fokus saat iterasi. Uji penuh SEKALI pada kandidat beku sebelum serah terima.
-3. Dilarang menunggu dengan jeda berulang (sleep-poll). Jalankan perintah secara
-   blocking, baca hasilnya sekali.
-4. Jangan membaca ulang file/log yang sudah dibaca. Jangan menjelajah di luar file
-   yang disebut brief.
-5. Jangan menjalankan ulang perintah dengan kode sumber + perintah identik.
-6. RECITATION: setiap ~5 langkah tulis ulang PROGRESS.md (selesai / berikutnya /
-   larangan yang masih berlaku), lalu baca ulang.
-7. Zona handoff: di 60 langkah tanpa kemajuan, BERHENTI dan tulis handoff ringkas ke
-   PROGRESS.md + kirim laporan. Batas keras 80 langkah; sesi berikutnya lanjut dari
-   PROGRESS.md, bukan mengulang.
-8. Berhenti begitu uji terdampak + bukti lulus. Tidak ada audit tambahan tanpa alasan
-   tertulis.
-9. Jangan menghapus pemeriksaan mutu demi cepat. Yang dipangkas hanya pengulangan.
+MANDATORY EFFICIENCY RULES
+1. BATCH findings: clear ALL findings in the brief/probe in ONE round + ONE commit.
+   Patching one at a time and then opening a new verification round is forbidden.
+2. Focused tests during iteration. Run the full test ONCE on the frozen candidate before handoff.
+3. Waiting with repeated sleeps (sleep-poll) is forbidden. Run commands
+   blocking, read the result once.
+4. Do not re-read files/logs already read. Do not explore outside the files
+   named in the brief.
+5. Do not re-run a command with identical source code + command.
+6. RECITATION: every ~5 steps rewrite PROGRESS.md (done / next /
+   prohibitions still in force), then read it back.
+7. Handoff zone: at 60 steps without progress, STOP and write a brief handoff to
+   PROGRESS.md + send a report. Hard limit 80 steps; the next session continues from
+   PROGRESS.md, not by starting over.
+8. Stop as soon as affected tests + passing evidence are in hand. No additional audit without a written
+   reason.
+9. Do not remove quality checks for speed. Only repetition gets trimmed.
 ```
 
-## Kenapa ditulis eksplisit
+## Why it is written explicitly
 
-Aturan di tempat lain (skill, brief) hilang pengaruhnya di sesi panjang. Blok ini
-dipasang DUA kali: di brief, dan di pengirim kerja (`should_stop()` dan handoff).
-Yang kedua tidak bisa dilupakan.
+Rules placed elsewhere (skill, brief) lose their effect in long sessions. This block is
+installed TWICE: in the brief, and in the work dispatcher (`should_stop()` and handoff).
+The second one cannot be forgotten.

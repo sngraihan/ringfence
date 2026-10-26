@@ -1,12 +1,12 @@
-"""Jurnal append-only + penanda idempotensi.
+"""Append-only journal + idempotency marker.
 
-Ditiru dari pola `a5c-ai/babysitter` (MIT): satu peristiwa = satu berkas JSON,
-ditulis atomic lewat `os.replace`, dan state dibangun ulang dengan membaca ulang
-jurnal (`replay`). Selesai = adanya peristiwa terminal, bukan bendera yang bisa
-dihapus ulang.
+Modeled on the `a5c-ai/babysitter` pattern (MIT): one event = one JSON file,
+written atomically via `os.replace`, and state is rebuilt by re-reading the
+journal (`replay`). Done = the presence of a terminal event, not a flag that can
+be deleted again.
 
-Penanda idempotensi (idem dari `completionProof`): hash dari `lease_id + task_key`,
-supaya pekerjaan yang sama tidak dijalankan dua kali tanpa perlu basis data.
+Idempotency marker (idem from `completionProof`): a hash of `lease_id + task_key`,
+so the same job is not run twice without needing a database.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ TERMINAL = {"done", "failed", "abandoned"}
 
 
 class Journal:
-    """Jurnal peristiwa per direktori kerja: `.ringfence/journal/000001.<ts>.json`."""
+    """Event journal per work directory: `.ringfence/journal/000001.<ts>.json`."""
 
     def __init__(self, workdir: str | os.PathLike):
         self.dir = Path(workdir) / ".ringfence" / "journal"
@@ -35,7 +35,7 @@ class Journal:
         final = self.dir / f"{seq:06d}.{int(payload['at'] * 1000)}.json"
         tmp = final.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
-        os.replace(tmp, final)  # atomic: pembaca tidak pernah melihat berkas separuh
+        os.replace(tmp, final)  # atomic: readers never see a half-written file
         return final
 
     def replay(self) -> list[dict]:
@@ -48,7 +48,7 @@ class Journal:
         return out
 
     def state(self) -> str:
-        """Status dari peristiwa terminal terakhir; 'running' bila belum ada."""
+        """Status from the last terminal event; 'running' if none yet."""
         for ev in reversed(self.replay()):
             if ev.get("kind") in TERMINAL:
                 return ev["kind"]
@@ -62,7 +62,7 @@ class Journal:
 
 
 def done_token(task_key: str, lease_id: str = "", salt: str = "") -> str:
-    """Hash identitas pekerjaan: kunci idempotensi tanpa basis data."""
+    """Job identity hash: an idempotency key without a database."""
     raw = f"{task_key}|{lease_id}|{salt}".encode()
     return hashlib.sha256(raw).hexdigest()[:32]
 
@@ -75,7 +75,7 @@ def mark_done_token(workdir: str | os.PathLike, token: str, note: str = "") -> P
 
 
 def already_done(workdir: str | os.PathLike, token: str) -> bool:
-    """True hanya bila penanda ada DAN hash-nya cocok untuk pekerjaan ini."""
+    """True only if the marker exists AND its hash matches this job."""
     try:
         data = json.loads((Path(workdir) / ".ringfence" / "done.token").read_text())
     except (OSError, ValueError):

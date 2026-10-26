@@ -1,113 +1,113 @@
 # Ringfence
 
-Guard layer kecil untuk pekerja AI yang jalan lama: supaya tidak mengulang pekerjaan
-yang sudah selesai, tidak dua pekerja di direktori yang sama, tidak berputar sampai
-kehabisan langkah, dan tidak melenceng dari tugasnya.
+A small guard layer for long-running AI workers: so they don't redo finished work,
+don't put two workers in the same directory, don't spin until they run out of steps,
+and don't drift off their task.
 
-Hanya bergantung pada pustaka standar Python 3.11+. Tanpa server, tanpa queue, tanpa
-basis data. Menempel pada pengirim kerja yang sudah ada (di kami: papan tugas kanban).
+Depends only on the Python 3.11+ standard library. No server, no queue, no database.
+It attaches to the work dispatcher you already have (in our case: a kanban task board).
 
-## Status jujur
+## Honest status
 
-Dipakai di kantor internal kami sejak 26 Oktober 2026. **Belum diuji luas di luar itu.**
-Isi repo ini hasil dari insiden nyata, dan akan berubah seiring pemakaian. Kalau kamu
-mencari framework lengkap, ini bukan itu.
+In use in our internal office since October 26, 2026. **Not yet widely tested outside
+that.** The contents of this repo come from real incidents, and will change as it gets
+used. If you're looking for a complete framework, this isn't it.
 
-## Masalah yang diselesaikan (semuanya pernah terjadi)
+## Problems it solves (all of these actually happened)
 
-| Kejadian nyata | Akibat | Penjaga |
+| Real event | Consequence | Guard |
 |---|---|---|
-| Pekerjaan 250 langkah untuk perbaikan 1 baris kode | 548 pemanggilan alat, biaya membengkak, hasil tetap terpotong | `should_stop()` |
-| Kartu yang sudah selesai dijalankan ulang oleh pengirim kerja | pekerjaan ganda, hasil yang sedang diperiksa berubah | `completion()` / `mark_done()` |
-| Dua pekerja di direktori yang sama | pemeriksa menilai hasil yang sudah bergeser | `WorkLock` |
-| Pekerja menunggu job dengan jeda berulang (`sleep 45` x puluhan) | token terbakar per putaran tanpa kemajuan | `detect_drift()` |
-| Pekerja memeriksa kredensial/infra padahal tugasnya mengukur halaman | 15 menit hilang, tidak ada hasil | `detect_drift()` |
+| 250 steps of work for a 1-line code fix | 548 tool calls, ballooning cost, output still truncated | `should_stop()` |
+| A card that was already done re-run by the work dispatcher | duplicated work, results under review changing | `completion()` / `mark_done()` |
+| Two workers in the same directory | the checker assessing results that had already shifted | `WorkLock` |
+| A worker waiting on a job with repeated sleeps (`sleep 45` x dozens) | tokens burned per cycle with no progress | `detect_drift()` |
+| A worker checking credentials/infra when its task was measuring a page | 15 minutes lost, no results | `detect_drift()` |
 
-## Isi
+## Contents
 
 ```python
 from ringfence import WorkLock, completion, mark_done, detect_drift, should_stop
 
-# 1. satu direktori = satu pekerja
+# 1. one directory = one worker
 lock = WorkLock("/srv/work/task-42", owner="builder", ttl=1800)
 if not lock.acquire():
-    raise SystemExit("direktori masih dipakai pekerja lain")
+    raise SystemExit("directory still in use by another worker")
 
-# 2. kerja selesai tidak dijalankan ulang
+# 2. finished work is not re-run
 if (c := completion("/srv/work/task-42")) and c["rc"] == 0:
-    raise SystemExit("sudah selesai, tunggu pemeriksa")
+    raise SystemExit("already done, wait for the checker")
 
-# 3. batas langkah/waktu + zona handoff sebelum batas keras
+# 3. step/time limits + handoff zone before the hard limit
 stop, why = should_stop(turns=61, seconds=300, max_turns=80, max_seconds=2400)
 if stop:
-    write_progress_note(why)   # tutup dengan catatan, lanjut di sesi baru
+    write_progress_note(why)   # close with a note, continue in a new session
 
-# 4. pola buruk di catatan kerja -> tahan untuk diperiksa, bukan bunuh otomatis
-drift = detect_drift(open("worker.log").read(), task_title="gate tampilan halaman")
+# 4. bad patterns in the work log -> hold for review, not auto-kill
+drift = detect_drift(open("worker.log").read(), task_title="page display gate")
 ```
 
-## Aturan yang menyertai penjaga
+## Rules that go with the guards
 
-Penjaga teknis saja tidak cukup kalau aturan kerja tidak ditulis. Template aturan yang
-kami tempelkan ke setiap brief pekerja: [`rules/BRIEF_RULES.md`](rules/BRIEF_RULES.md).
+Technical guards alone aren't enough if the working rules aren't written down. The rules
+template we paste into every worker brief: [`rules/BRIEF_RULES.md`](rules/BRIEF_RULES.md).
 
-Tiga yang paling berdampak:
-1. **Batalkan pengulangan** — semua temuan dibereskan dalam satu putaran, satu commit.
-2. **Recitation** — pekerja menulis ulang catatan progres tiap ~5 langkah lalu membacanya.
-   Aturan di brief cepat terlupa di sesi panjang; menulis ulang lebih kuat daripada mengingat.
-3. **Handoff, bukan melanjutkan** — di 60 langkah tanpa kemajuan, berhenti dan serahkan
-   catatan; sesi berikutnya lanjut dari catatan itu, bukan mengulang dari awal.
+The three with the most impact:
+1. **Cancel repetition** — all findings are resolved in one round, one commit.
+2. **Recitation** — the worker rewrites the progress note every ~5 steps and then reads it.
+   Rules in the brief are quickly forgotten in long sessions; rewriting is stronger than remembering.
+3. **Handoff, not continuation** — at 60 steps without progress, stop and hand over the
+   note; the next session continues from that note, not by starting over.
 
-## Yang TIDAK dianjurkan (dan alasannya)
+## What is NOT recommended (and why)
 
-- **Membunuh pekerja otomatis karena dicurigai melenceng.** Salah tuduh itu mahal.
-  `detect_drift()` melaporkan; keputusan menghentikan ada di pengawas.
-- **Menaikkan batas langkah supaya pekerjaan "selesai".** Sesi kepanjangan justru
-  menurunkan kepatuhan; lebih baik dipecah dengan serah terima catatan.
-- **Menambah banyak agen paralel.** Menambah jumlah agen menambah biaya jauh lebih
-  cepat daripada menambah hasil.
+- **Auto-killing a worker because it's suspected of drifting.** A false accusation is expensive.
+  `detect_drift()` reports; the decision to stop rests with the supervisor.
+- **Raising the step limit so the work can "finish".** An overlong session actually
+  lowers compliance; better to split it with a note handoff.
+- **Adding many parallel agents.** Adding agent count adds cost far faster
+  than it adds output.
 
-## Sudah ada yang bikin?
+## Does something like this already exist?
 
-Ya, ada yang berdekatan — kami cek dulu sebelum menulis ini:
+Yes, there are adjacent ones — we checked first before writing this:
 
-- [a5c-ai/babysitter](https://github.com/a5c-ai/babysitter) — memaksa kepatuhan aturan pada
-  kumpulan agen.
+- [a5c-ai/babysitter](https://github.com/a5c-ai/babysitter) — enforces rule compliance across
+  a set of agents.
 - [GammaLabTechnologies/harmonist](https://github.com/GammaLabTechnologies/harmonist) —
-  orkestrasi agen dengan penegakan protokol mekanis.
-- [VicKayro/leash](https://github.com/VicKayro/leash) — melihat biaya, loop, dan cron mati
-  milik agen.
-- [omnigent-ai/omnigent](https://github.com/omnigent-ai/omnigent) — meta-harness orkestrasi.
+  agent orchestration with mechanical protocol enforcement.
+- [VicKayro/leash](https://github.com/VicKayro/leash) — sees agent costs, loops, and dead
+  crons.
+- [omnigent-ai/omnigent](https://github.com/omnigent-ai/omnigent) — an orchestration meta-harness.
 
-Ringfence lebih kecil dan lebih sempit: tiga penjaga + aturan brief, tanpa framework,
-tanpa layanan. Kalau kebutuhanmu besar, pakai yang di atas.
+Ringfence is smaller and narrower: three guards + brief rules, no framework,
+no service. If your needs are large, use the ones above.
 
-## Apa yang ditiru dari repo lain (v0.2)
+## What is copied from other repos (v0.2)
 
-Kami mengamati repo yang lebih dulu menyelesaikan masalah serupa, lalu meniru polanya
-(daftar lengkap + lisensi: [`docs/credits.md`](docs/credits.md)):
+We looked at repos that solved similar problems earlier, then copied the patterns
+(full list + licenses: [`docs/credits.md`](docs/credits.md)):
 
-| Mekanisme | Dari mana | Ada di sini |
+| Mechanism | From where | Present here |
 |---|---|---|
-| Jurnal append-only: selesai = peristiwa terminal, bukan bendera | babysitter (MIT) | `journal.Journal` |
-| Penanda idempotensi ber-hash (tanpa basis data) | babysitter | `journal.done_token` / `already_done` |
-| Aturan deny > warn > allow + jejak keputusan | babysitter, omnigent | `policy.evaluate` |
-| Putaran berulang: hash `tool + input`, 10x total / 6x dalam 10 menit | leash (MIT) | `loopwatch.LoopWatch` |
-| Pagar belanja harian & per-jam (fail-open) | leash, omnigent | `loopwatch.CostGuard` |
-| Brief ditolak bila tanpa identitas pemilik / terlalu pendek | harmonist (MIT) | `brief.check_brief` |
+| Append-only journal: done = terminal event, not a flag | babysitter (MIT) | `journal.Journal` |
+| Hashed idempotency marker (no database) | babysitter | `journal.done_token` / `already_done` |
+| deny > warn > allow rule + decision trail | babysitter, omnigent | `policy.evaluate` |
+| Repeated loop: hash `tool + input`, 10x total / 6x within 10 minutes | leash (MIT) | `loopwatch.LoopWatch` |
+| Daily & hourly spend fence (fail-open) | leash, omnigent | `loopwatch.CostGuard` |
+| Brief rejected if without owner identity / too short | harmonist (MIT) | `brief.check_brief` |
 
-## Dasar dari sumber luar
+## Grounding in external sources
 
-Ringkasan sumber (Anthropic, Cognition, Manus, OpenAI, arXiv) dan apa yang diambil
-dari masing-masing: [`docs/patterns.md`](docs/patterns.md).
-Catatan insiden mentah sebagai bukti: [`docs/incidents.md`](docs/incidents.md).
+Summary of sources (Anthropic, Cognition, Manus, OpenAI, arXiv) and what was taken
+from each: [`docs/patterns.md`](docs/patterns.md).
+Raw incident notes as evidence: [`docs/incidents.md`](docs/incidents.md).
 
-## Uji
+## Test
 
 ```bash
 python3 tests/test_guard.py
 ```
 
-## Lisensi
+## License
 
-MIT — lihat [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

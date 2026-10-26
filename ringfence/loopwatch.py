@@ -1,10 +1,10 @@
-"""Deteksi putaran berulang + pagar biaya dari catatan kerja lokal.
+"""Repeated-loop detection + cost fence from the local work log.
 
-Angka ambang ditiru dari `VicKayro/leash` (MIT): hash `tool_name + input`, tandai
-bila 10x total atau 6x dalam jendela 10 menit. Pagar biaya harian/per-jam juga dari
-pola `leash` ("the loop killer") dan gate biaya `omnigent` (Apache-2.0).
+Threshold numbers modeled on `VicKayro/leash` (MIT): hash `tool_name + input`, flag
+at 10x total or 6x within a 10-minute window. The daily/hourly cost fence also comes
+from the `leash` pattern ("the loop killer") and the `omnigent` cost gate (Apache-2.0).
 
-Semua fungsi murni/berkas-lokal: tanpa basis data, tanpa layanan.
+All functions are pure/local-file: no database, no service.
 """
 
 from __future__ import annotations
@@ -22,16 +22,16 @@ LOOP_FAST_WINDOW_S = 10 * 60
 
 
 def hash_action(tool: str, payload) -> str:
-    """Kunci identitas satu aksi: nama alat + isi permintaannya."""
+    """Identity key of a single action: tool name + its request body."""
     body = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(f"{tool}|{body}".encode()).hexdigest()[:16]
 
 
 class LoopWatch:
-    """Hitung aksi identik dari event (tool, payload, waktu).
+    """Count identical actions from events (tool, payload, time).
 
-    `observe()` mengembalikan (putaran?, keterangan). Ambang default: 10x total,
-    atau 6x dalam 10 menit terakhir.
+    `observe()` returns (loop?, description). Default thresholds: 10x total,
+    or 6x in the last 10 minutes.
     """
 
     def __init__(self, threshold_total: int = LOOP_THRESHOLD,
@@ -49,21 +49,21 @@ class LoopWatch:
         self.counts[key] = self.counts.get(key, 0) + 1
         self.times.setdefault(key, []).append(now)
         if self.counts[key] >= self.threshold_total:
-            return True, f"aksi identik {self.counts[key]}x (ambang {self.threshold_total})"
+            return True, f"identical action {self.counts[key]}x (threshold {self.threshold_total})"
         recent = [t for t in self.times[key] if now - t <= self.fast_window_s]
         if len(recent) >= self.fast_threshold:
             return True, (
-                f"aksi identik {len(recent)}x dalam {self.fast_window_s // 60} menit "
-                f"(ambang {self.fast_threshold})"
+                f"identical action {len(recent)}x within {self.fast_window_s // 60} minutes "
+                f"(threshold {self.fast_threshold})"
             )
         return False, ""
 
 
 class CostGuard:
-    """Pagar belanja harian/per-jam. Fail-open: galat pencatatan tidak memblokir.
+    """Daily/hourly spend fence. Fail-open: a logging error does not block.
 
-    `fail_open=True` disengaja (pola `leash`): pagar ini penjaga biaya, bukan
-    pengaman keamanan. Untuk aksi berisiko, pakai `policy.evaluate` yang fail-closed.
+    `fail_open=True` is deliberate (the `leash` pattern): this fence is a cost guard, not
+    a security control. For risky actions, use `policy.evaluate`, which is fail-closed.
     """
 
     def __init__(self, state_path: str | Path, daily_cap: float, hourly_cap: float | None = None):
@@ -82,7 +82,7 @@ class CostGuard:
         self.path.write_text(json.dumps({"entries": entries[-2000:]}) + "\n")
 
     def add(self, cost: float, at: float | None = None) -> tuple[bool, str]:
-        """Catat belanja; kembalikan (diblokir?, alasan). Fail-open saat galat."""
+        """Record spend; return (blocked?, reason). Fail-open on error."""
         now = time.time() if at is None else at
         try:
             entries = self._load()
@@ -90,11 +90,11 @@ class CostGuard:
             self._save(entries)
             day = sum(e["cost"] for e in entries if now - e["at"] <= 86400)
             if day > self.daily_cap:
-                return True, f"belanja 24 jam {day:.4f} melewati plafon {self.daily_cap:.4f}"
+                return True, f"24-hour spend {day:.4f} exceeds cap {self.daily_cap:.4f}"
             if self.hourly_cap:
                 hour = sum(e["cost"] for e in entries if now - e["at"] <= 3600)
                 if hour > self.hourly_cap:
-                    return True, f"belanja 1 jam {hour:.4f} melewati plafon {self.hourly_cap:.4f}"
+                    return True, f"1-hour spend {hour:.4f} exceeds cap {self.hourly_cap:.4f}"
             return False, ""
         except OSError:
-            return False, ""  # fail-open: jangan hentikan kerja karena gagal catat
+            return False, ""  # fail-open: do not stop work because a record write failed
