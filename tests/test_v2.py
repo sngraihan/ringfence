@@ -85,5 +85,10 @@ def main() -> int:
     return 0
 
 
+def test_selfcheck() -> None:
+    """Entry point for pytest: the script-style check must exit 0."""
+    assert main() == 0
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
